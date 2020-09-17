@@ -1,0 +1,9 @@
+db.db
+app.py
+ask.py
+ask-watch.py
+venv
+.idea
+*~
+.DS_Store
+__pycache__

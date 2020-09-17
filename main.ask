@@ -1,0 +1,155 @@
+_auth.secret_key = ''
+
+db_class Product:
+	id = _db.col(_db.int, _db.pk)
+	title = _db.col(_db.str(100))
+	short = _db.col(_db.str(100))
+	description = _db.col(_db.str(200))
+	price = _db.col(_db.float)
+	qty = _db.col(_db.int)
+
+	def _init(self, title, short, description, price, qty):
+		self.title = title
+		self.short = short
+		self.description = description
+		self.price = price
+		self.qty = qty
+
+	def s(self):
+		return {
+			id: self.id,
+			title: self.title,
+			short: self.short,
+			description: self.description,
+			price: self.price,
+			qty: self.qty
+		}
+
+db_class User:
+	id = _db.col(_db.int, _db.pk)
+	email = _db.col(_db.str(100), _db.unique)
+	password = _db.col(_db.str(256))
+	cart = _db.col(_db.str())
+
+	def _init(self, email, password):
+		self.email = email
+		self.password = _hash.hash(password)
+		self.cart = ''
+
+	def s(self):
+		return {
+			id: self.id,
+			email: self.email,
+			cart: self.cart
+		}
+
+def is_admin():
+	return _auth.decode()['user'] == 'admin@skysweet.com'
+
+@get('/products'):
+	products = Product._db.all()
+	response = []
+
+	for product in products:
+		response.append(product.s())
+
+	respond(response)
+
+@get('/product/<id>'):
+	product = Product._db.get(id)
+	if not product:
+		respond('404 Not found!')
+	respond(product.s())
+
+&protected
+@post('/product'):
+	if is_admin():
+		if _body['title'] and _body['short'] and _body['description'] and _body['price'] and _body['qty']:
+			new_product = Product(_body['title'], _body['short'], _body['description'], _body['price'], _body['qty'])
+			_db.add(new_product)
+
+			respond(new_product.s())
+	respond('Not admin!')
+
+&protected
+@put('/product/<id>'):
+	if is_admin():
+		product = Product._db.get(id)
+
+		if not product:
+			respond('404 Not found!')
+
+		if 'title' in _body:
+			product.title = _body['title']
+		if 'short' in _body:
+			product.short = _body['short']
+		if 'description' in _body:
+			product.description = _body['description']
+		if 'price' in _body:
+			product.price = _body['price']
+		if 'qty' in _body:
+			product.qty = _body['qty']
+
+		_db.save()
+
+		respond(product.s())
+	respond('Not admin!')
+
+&protected
+@delete('/product/<id>'):
+	if is_admin():
+		product = Product._db.get(id)
+
+		if not product:
+			respond('404 Not found!')
+
+  		_db.delete(product)
+  		respond('Deleted.')
+	respond('Not admin!')
+
+@post('/user/signup'):
+	if not _body['email'] or not _body['password']:
+		respond('You need to provide an email and a password!')
+
+	tmp_user = bool(User._db.get_by(email=_body['email']).first())
+	print(tmp_user)
+	if tmp_user:
+		respond('Email already registered!')
+
+	new_user = User(_body['email'], _body['password'])
+	_db.add(new_user)
+
+	respond(new_user.s())
+
+@get('/user/login'):
+	if not _body['email'] or not _body['password']:
+		respond('You need to provide an email and a password!')
+
+	user = User._db.get_by(email=_body['email']).first()
+
+	if not bool(user):
+		respond('Email is not registered!')
+
+	if not _hash.check(user.password, _body['password']):
+		respond('Wrong password!')
+
+	_auth.login(_body['email'], 30)
+	respond({token: _auth.token.decode('utf-8')})
+
+&protected
+@get('/user'):
+	current_user = User._db.get_by(email=_auth.decode()['user']).first()
+	respond(current_user.s())
+
+&protected
+@post('/user/cart'):
+	if not _body['product_id']:
+		respond('No product id specified!')
+
+	current_user = User._db.get_by(email=_auth.decode()['user']).first()
+	current_user.cart = current_user.cart + str(_body['product_id']) + ','
+	_db.save()
+
+	respond(current_user.s())
+
+
