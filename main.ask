@@ -133,7 +133,7 @@ def is_admin():
 	if not _hash.check(user.password, _body['password']):
 		respond('Wrong password!')
 
-	_auth.login(_body['email'], 30)
+	_auth.login(_body['email'], 3600)
 	respond({token: _auth.token.decode('utf-8')})
 
 &protected
@@ -150,6 +150,6 @@ def is_admin():
 	current_user.cart = current_user.cart + str(_body['product_id']) + ','
 	_db.save()
 
-	respond(current_user.s())
+	respond(current_user.s()['cart'])
 
 
