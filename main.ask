@@ -30,21 +30,37 @@ db_class User:
 	id = _db.col(_db.int, _db.pk)
 	email = _db.col(_db.str(100), _db.unique)
 	password = _db.col(_db.str(256))
-	cart = _db.col(_db.str())
-	cart_qtys = _db.col(_db.str())
+	cart = _db.col(_db.str)
 
 	def _init(self, email, password):
 		self.email = email
 		self.password = _hash.hash(password)
 		self.cart = ''
-		self.cart_qtys = ''
 
 	def s(self):
 		return {
 			id: self.id,
 			email: self.email,
-			cart: self.cart,
-			cart_qtys: self.cart_qtys
+			cart: self.cart
+		}
+
+db_class CartItem:
+	id = _db.col(_db.int, _db.pk)
+	product = _db.col(_db.int)
+	qty = _db.col(_db.int)
+	user = _db.col(_db.str(100))
+
+	def _init(self, product, qty, user):
+		self.product = product
+		self.qty = qty
+		self.user = user
+
+	def s(self):
+		return {
+			id: self.id,
+			product: self.product,
+			qty: self.qty,
+			user: self.user
 		}
 
 # Products & Product information
@@ -157,11 +173,22 @@ def login(email, password):
 		respond('No product id or qty. specified!')
 
 	current_user = User._db.get_by(email=_auth.decode()['user']).first()
-	current_user.cart = current_user.cart + str(_body['product_id']) + ','
-	current_user.cart_qtys = current_user.cart_qtys + str(_body['qty']) + ','
+
+	cart_item = CartItem(_body['product_id'], _body['qty'], _auth.decode()['user'])
+	_db.add(cart_item)
+
+	current_user.cart =  current_user.cart + str(cart_item.id) + ','
 
 	_db.save()
 
 	respond(current_user.s())
+
+&protected
+@get('/cart_item/<id>'):
+	cart_item = CartItem._db.get(id)
+	if cart_item.user == _auth.decode()['user']:
+		respond(cart_item.s())
+
+	respond('Forbidden!')
 
 
