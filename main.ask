@@ -63,21 +63,44 @@ db_class CartItem:
 			user: self.user
 		}
 
+db_class Order:
+	id = _db.col(_db.int, _db.pk)
+	order = _db.col(_db.str)
+	user = _db.col(_db.str)
+	date = _db.col(_db.str)
+	payment_method = _db.col(_db.str)
+	address = _db.col(_db.str)
+	subtotal = _db.col(_db.float)
+
+	def _init(self, order, user, date, payment_method, address, subtotal):
+		self.order = order
+		self.user = user
+		self.date = date
+		self.payment_method = payment_method
+		self.address = address
+		self.subtotal = subtotal
+
+	def s(self):
+		return {
+			id: self.id,
+			order: self.order,
+			user: self.user,
+			date: self.date,
+			payment_method: self.payment_method,
+			address: self.address,
+			subtotal: self.subtotal
+		}
+
 # Products & Product information
 @get('/products'):
 	products = Product._db.all()
-	response = []
-
-	for product in products:
-		response.append(product.s())
-
-	respond(response)
+	respond {products: serialize(products)}
 
 @get('/product/<id>'):
 	product = Product._db.get(id)
 	if not product:
-		respond('404 Not found!')
-	respond(product.s())
+		respond '404 Not found!'
+	respond product.s()
 
 # Product management (Admin only)
 def is_admin():
@@ -90,8 +113,8 @@ def is_admin():
 			new_product = Product(_body['title'], _body['short'], _body['description'], _body['price'], _body['qty'])
 			_db.add(new_product)
 
-			respond(new_product.s())
-	respond('Not admin!')
+			respond new_product.s()
+	respond 'Not admin!'
 
 &protected
 @put('/product/<id>'):
@@ -99,7 +122,7 @@ def is_admin():
 		product = Product._db.get(id)
 
 		if not product:
-			respond('404 Not found!')
+			respond '404 Not found!'
 
 		if 'title' in _body:
 			product.title = _body['title']
@@ -114,8 +137,8 @@ def is_admin():
 
 		_db.save()
 
-		respond(product.s())
-	respond('Not admin!')
+		respond product.s()
+	respond 'Not admin!'
 
 &protected
 @delete('/product/<id>'):
@@ -123,54 +146,56 @@ def is_admin():
 		product = Product._db.get(id)
 
 		if not product:
-			respond('404 Not found!')
+			respond '404 Not found!'
 
   		_db.delete(product)
-  		respond('Deleted.')
-	respond('Not admin!')
+  		respond 'Deleted.'
+	respond 'Not admin!'
 
 # User/login management
 @post('/user/signup'):
 	if not _body['email'] or not _body['password']:
-		respond('You need to provide an email and a password!')
+		respond 'You need to provide an email and a password!'
 
 	tmp_user = bool(User._db.get_by(email=_body['email']).first())
 	print(tmp_user)
 	if tmp_user:
-		respond('Email already registered!')
+		respond 'Email already registered!'
 
 	new_user = User(_body['email'], _body['password'])
 	_db.add(new_user)
 
-	respond(login(_body['email'], _body['password']))
+	respond login(_body['email'], _body['password'])
 
 def login(email, password):
 	user = User._db.get_by(email=email).first()
 
 	if not bool(user):
-		respond('Email is not registered!')
+		respond 'Email is not registered!'
 
 	if not _hash.check(user.password,password):
-		respond('Wrong password!')
+		respond 'Wrong password!'
 
 	_auth.login(email, 3600)
 	return {token: _auth.token.decode('utf-8')}
 
 @post('/user/login'):
 	if not _body['email'] or not _body['password']:
-		respond('You need to provide an email and a password!')
+		respond 'You need to provide an email and a password!'
 
-	respond(login(_body['email'], _body['password']))
+	respond login(_body['email'], _body['password'])
 
 &protected
 @get('/user'):
 	current_user = User._db.get_by(email=_auth.decode()['user']).first()
-	respond(current_user.s())
+	cart_items = [cart_item.s() for cart_item in CartItem._db.all()]
+	respond current_user.s()
 
+# Cart management
 &protected
 @post('/user/cart'):
 	if not _body['product_id'] or not _body['qty']:
-		respond('No product id or qty. specified!')
+		respond 'No product id or qty. specified!'
 
 	current_user = User._db.get_by(email=_auth.decode()['user']).first()
 
@@ -181,14 +206,86 @@ def login(email, password):
 
 	_db.save()
 
-	respond(current_user.s())
+	respond current_user.s()
 
 &protected
 @get('/cart_item/<id>'):
 	cart_item = CartItem._db.get(id)
+	if cart_item:
+		if cart_item.user == _auth.decode()['user']:
+			respond cart_item.s()
+
+		respond 'Forbidden!'
+
+	respond '404'
+
+&protected
+@put('/cart_item/<id>'):
+	cart_item = CartItem._db.get(id)
 	if cart_item.user == _auth.decode()['user']:
-		respond(cart_item.s())
+		if _body['qty']:
+			cart_item.qty = _body['qty']
+			_db.save()
+			respond cart_item.s()
+		respond 'No qty to update to given!'
 
-	respond('Forbidden!')
+	respond 'Forbidden!'
 
+def delete_cart_item(id, user):
+	cart_item = CartItem._db.get(id)
 
+	id = str(id)
+
+	user = User._db.get_by(email=user).first()
+	if cart_item.user == user.email:
+		cart_str = user.cart
+		cart_str = cart_str.replace(id + ',', '')
+
+		user.cart = cart_str
+		_db.save()
+
+		_db.delete(cart_item)
+
+		return 'deleted'
+
+	return 'Forbidden!'
+
+&protected
+@delete('/cart_item/<id>'):
+	respond delete_cart_item(id, _auth.decode()['user'])
+
+&protected
+@post('/checkout'):
+	if 'order' in _body and 'date' in _body and 'payment_method' in _body and 'address' in _body:
+		order_product_ids = []
+		subtotal = 0
+
+		for order_item in _body['order']:
+			cart_item = CartItem._db.get(order_item['cartItemId'])
+
+			if cart_item.user != _auth.decode()['user']:
+				status('Forbidden!', 402)
+
+			product = Product._db.get(cart_item.product)
+
+			if order_item['qty'] > product.qty:
+				status('Not enough stock', 500)
+
+			product.qty = product.qty - order_item['qty']
+
+			order_product_ids.append(str(product.id))
+			subtotal += product.price * order_item['qty']
+
+			_ = delete_cart_item(cart_item.id, _auth.decode()['user'])
+
+		new_order = Order(','.join(order_product_ids), _auth.decode()['user'], _body['date'], _body['payment_method'], _body['address'], float(subtotal))
+
+		_db.add(new_order)
+		_db.save()
+
+		respond(new_order.id)
+
+# Test token
+&protected
+@get('/test'):
+	respond 'true'
